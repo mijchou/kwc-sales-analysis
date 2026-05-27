@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from streamlit_plotly_events import plotly_events
 import utils as u
 
+# test commit 
 # Section 1: Item Ranking
 # Function to display sales overview
 def display_sales_overview(sales_data, accounts_df, purchase_record_df, items_df, date_start, date_end, supplier, selected_categories, metric_option):#, display_option):
