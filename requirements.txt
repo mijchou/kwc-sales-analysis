@@ -1,0 +1,6 @@
+streamlit==1.35.0
+pandas==2.2.2
+numpy==1.25.1
+plotly==5.22.0
+streamlit==1.36.0
+Streamlit-plotly-events==0.0.6
