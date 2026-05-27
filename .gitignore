@@ -1,0 +1,17 @@
+# Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.JPG
+*.JPEG
+*.PNG
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
