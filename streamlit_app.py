@@ -9,6 +9,7 @@ import utils as u
 import sales_overview as so
 import sales_analysis as sa
 import customer_analysis as ca
+import kwc_dashboard as kd
 # import database_page as dp
 
 # Set Streamlit page configuration
@@ -85,7 +86,7 @@ def change_date(max_date, option=''):
 
 def initialize_session_state(max_date):
     if 'current_page' not in st.session_state:
-        st.session_state.current_page = "Sales Overview"
+        st.session_state.current_page = "KWC Dashboard"
     # if 'area_key' not in st.session_state:
     #     st.session_state.area_key = 1
     if 'date_end' not in st.session_state:
@@ -112,7 +113,7 @@ max_date = sales_data['date'].max()
 
 # Merge sales data with accounts and items data
 sales_data = sales_data.merge(accounts_df[['accno', 'name', 'termcode', 'delimit', 'show',
-                                            'addr1', 'addr2', 'addr3', 'code', 'disc', 'tel', 'contact', 'email']], on='accno', how='left')
+                                            'addr1', 'addr2', 'addr3', 'code', 'disc', 'tel', 'contact', 'email', 'area']], on='accno', how='left')
 sales_data = sales_data.merge(items_df[['item_number', 'description', 'supplier', 'category']], on='item_number', how='left')
 
 # Initialize session state
@@ -120,7 +121,12 @@ initialize_session_state(max_date)
 
 #### Begins
 
-# To "Sales Overview":
+# Portal to KWC Dashboard (new main dashboard)
+if st.sidebar.button(":trophy: KWC Sales Dashboard powered by Claude", key="goto_kwc_dashboard", type="primary"):
+    st.session_state.current_page = "KWC Dashboard"
+    st.rerun()
+
+# To "Sales Overview" (legacy):
 if st.sidebar.button(":house: Back to Sales Overview", key="back_to_sales_overview"):
     u.back_to_sales_overview()
 
@@ -224,6 +230,7 @@ clear_button = st.sidebar.button(
 
 # Page display logic
 page_display_functions = {
+    "KWC Dashboard": lambda: kd.display_kwc_dashboard(sales_data, accounts_df, items_df, max_date),
     "Sales Overview": lambda: so.display_sales_overview(sales_data, accounts_df, purchase_record_df, items_df, st.session_state.date_start, st.session_state.date_end, supplier, selected_categories, st.session_state.metric_option),#, st.session_state.display_option),
     "Sales Analysis": lambda: sa.display_sales_analysis(sales_data, accounts_df, purchase_record_df, items_df, st.session_state.selected_item_number, st.session_state.date_start, st.session_state.date_end, st.session_state.metric_option),#, st.session_state.display_option),
     "Customer Analysis": lambda: ca.display_customer_analysis(sales_data, accounts_df, st.session_state.selected_customer_number, items_df, st.session_state.date_start, st.session_state.date_end, supplier, selected_categories, st.session_state.metric_option),#, st.session_state.display_option),

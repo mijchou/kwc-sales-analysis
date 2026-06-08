@@ -11,7 +11,14 @@ def back_to_sales_overview():
     st.session_state.selectbox_item_key = st.session_state.selectbox_item_key+1
     st.session_state.selectbox_customer_key = st.session_state.selectbox_customer_key+1
     st.session_state.current_page = "Sales Overview"
-    st.experimental_rerun()
+    st.rerun()
+
+
+def back_to_dashboard():
+    st.session_state.selectbox_item_key = st.session_state.selectbox_item_key+1
+    st.session_state.selectbox_customer_key = st.session_state.selectbox_customer_key+1
+    st.session_state.current_page = "KWC Dashboard"
+    st.rerun()
 
 
 
@@ -124,7 +131,7 @@ def go_back():
             st.session_state.previous_page,
             st.session_state.current_page,
         )
-    st.experimental_rerun()
+    st.rerun()
 
 def scroll_to_top():
     js = '''
