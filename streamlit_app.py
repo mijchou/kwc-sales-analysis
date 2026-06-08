@@ -57,6 +57,18 @@ def load_data():
     sales_data = pd.read_csv(SALES_FILE)
     sales_data['date'] = pd.to_datetime(sales_data['date'], format='%d/%m/%Y').dt.date
     items_df = pd.read_csv(ITEMS_FILE)
+    # Normalize image paths: items.csv may contain absolute host paths (from
+    # running items_cleaning.py outside the container). Rewrite anything
+    # pointing into the static/ tree to the Streamlit-served URL form.
+    def _to_static_url(p):
+        if not isinstance(p, str):
+            return p
+        norm = p.replace('\\', '/')
+        idx = norm.rfind('/static/')
+        if idx == -1:
+            return p
+        return '/app/static/' + norm[idx + len('/static/'):]
+    items_df['image_file_path'] = items_df['image_file_path'].apply(_to_static_url)
     purchase_record_df = pd.read_csv(PURCHASE_RECORD_FILE)
     purchase_record_df['date'] = pd.to_datetime(purchase_record_df['date'], format='%d/%m/%Y').dt.date
     return sales_data, items_df, purchase_record_df
