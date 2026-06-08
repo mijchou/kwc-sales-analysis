@@ -142,9 +142,20 @@ def display_customer_analysis(sales_data, accounts_df, customer_number, items_df
 
         # Toggle for grouping by month
         group_by_month = col1.toggle("Grouped by month")
+        split_by_year = col1.toggle("Split graph by year", disabled=not group_by_month)
+        if not group_by_month:
+            col1.caption("Enable 'Grouped by month' to use this option")
+            split_by_year = False
 
         # Calculate sales over time
-        if group_by_month:
+        if group_by_month and split_by_year:
+            # Split by year mode: each year is a separate line
+            filtered_data['year'] = pd.to_datetime(filtered_data['date']).dt.year.astype(str)
+            filtered_data['month'] = pd.to_datetime(filtered_data['date']).dt.month
+            filtered_data['month_name'] = pd.to_datetime(filtered_data['date']).dt.strftime('%b')
+            sales_over_time = filtered_data.groupby(['year', 'month', 'month_name']).agg({'retail': 'sum', 'quantity': 'sum'}).reset_index()
+            sales_over_time = sales_over_time.sort_values(['year', 'month'])
+        elif group_by_month:
             filtered_data['year_month'] = pd.to_datetime(filtered_data['date']).dt.to_period('M')
             sales_over_time = filtered_data.groupby('year_month').agg({'retail': 'sum', 'quantity': 'sum'}).reset_index()
             sales_over_time['year_month'] = sales_over_time['year_month'].dt.to_timestamp()
@@ -154,7 +165,17 @@ def display_customer_analysis(sales_data, accounts_df, customer_number, items_df
             sales_over_time = filtered_data.groupby('date').agg({'retail': 'sum', 'quantity': 'sum'}).reset_index()
             sales_over_time['date_str'] = pd.to_datetime(sales_over_time['date']).dt.strftime('%Y-%m-%d')
             x_column = 'date'
+
         with col1:
+            if group_by_month and split_by_year:
+                # Multi-line chart with each year as a separate line
+                fig_sales_over_time = px.line(sales_over_time, x='month_name', y=metric_option, color='year',
+                                              markers=True, category_orders={'month_name': ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']})
+                fig_sales_over_time.update_layout(xaxis_title='Month', yaxis_title=metric_option_name,
+                                                  hoverlabel=dict(bgcolor="white", font_color='black', font_size=14),
+                                                  legend_title_text='Year')
+                st.plotly_chart(fig_sales_over_time)
+            else:
                 fig_sales_over_time = px.line(sales_over_time, x=x_column, y=metric_option, hover_data={metric_other: True})
                 if group_by_month:
                     date_label = 'Month'
@@ -178,29 +199,48 @@ def display_customer_analysis(sales_data, accounts_df, customer_number, items_df
 
         with col2:
             # Revenue Analysis
-            col1, col2 = st.columns(2)
+            metric_col1, metric_col2 = st.columns(2)
             total_revenue = filtered_data['retail'].sum()
             total_quantity = filtered_data['quantity'].sum()
-            col1.metric("Total Revenue (Total Excl.)", f"R {total_revenue:,.2f}")
-            col2.metric("Total Quantity", f"{total_quantity:,.0f}")
+            metric_col1.metric("Total Revenue (Total Excl.)", f"R {total_revenue:,.2f}")
+            metric_col2.metric("Total Quantity", f"{total_quantity:,.0f}")
 
             # Sales Over Time Records
-            st.markdown('&nbsp;&nbsp;&nbsp;:arrow_down: :blue[**Click to view transactions.**]')
-            if group_by_month:
-                display_df = sales_over_time[['date_str', 'retail', 'quantity']].copy()
-                display_df = display_df.sort_values(by='date_str', ascending=False)
-                selected_row = st.dataframe(display_df,
-                                            column_config={"date_str": st.column_config.Column("Month"),
-                                                            "retail": st.column_config.Column("Revenue"),
-                                                            "quantity": st.column_config.Column("Qty. Sold")}, hide_index=True, use_container_width=True, height=350, on_select='rerun', selection_mode="single-row")
+            if group_by_month and split_by_year:
+                # Pivot tables for year comparison
+                month_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+                # Revenue pivot table
+                st.markdown('**Revenue by Month**')
+                revenue_pivot = sales_over_time.pivot(index='month_name', columns='year', values='retail').reindex(month_order).dropna(how='all')
+                revenue_pivot.index.name = 'Month'
+                st.dataframe(revenue_pivot, use_container_width=True, height=200)
+
+                # Quantity pivot table
+                st.markdown('**Qty. Sold by Month**')
+                qty_pivot = sales_over_time.pivot(index='month_name', columns='year', values='quantity').reindex(month_order).dropna(how='all')
+                qty_pivot.index.name = 'Month'
+                st.dataframe(qty_pivot, use_container_width=True, height=200)
+
+                selected_rowno = []
+                selected_df = pd.DataFrame()
             else:
-                display_df = sales_over_time[['date', 'retail', 'quantity']].sort_values(by='date', ascending=False)
-                selected_row = st.dataframe(display_df,
-                                            column_config={"date": st.column_config.Column("Date"),
-                                                            "retail": st.column_config.Column("Revenue"),
-                                                            "quantity": st.column_config.Column("Qty. Sold")}, hide_index=True, use_container_width=True, height=350, on_select='rerun', selection_mode="single-row")
-            selected_rowno = selected_row.selection.rows # get row no.
-            selected_df = sales_over_time.iloc[selected_rowno] # get row
+                st.markdown('&nbsp;&nbsp;&nbsp;:arrow_down: :blue[**Click to view transactions.**]')
+                if group_by_month:
+                    display_df = sales_over_time[['date_str', 'retail', 'quantity']].copy()
+                    display_df = display_df.sort_values(by='date_str', ascending=False)
+                    selected_row = st.dataframe(display_df,
+                                                column_config={"date_str": st.column_config.Column("Month"),
+                                                                "retail": st.column_config.Column("Revenue"),
+                                                                "quantity": st.column_config.Column("Qty. Sold")}, hide_index=True, use_container_width=True, height=350, on_select='rerun', selection_mode="single-row")
+                else:
+                    display_df = sales_over_time[['date', 'retail', 'quantity']].sort_values(by='date', ascending=False)
+                    selected_row = st.dataframe(display_df,
+                                                column_config={"date": st.column_config.Column("Date"),
+                                                                "retail": st.column_config.Column("Revenue"),
+                                                                "quantity": st.column_config.Column("Qty. Sold")}, hide_index=True, use_container_width=True, height=350, on_select='rerun', selection_mode="single-row")
+                selected_rowno = selected_row.selection.rows # get row no.
+                selected_df = sales_over_time.iloc[selected_rowno] # get row
 
         cola, colb, colc = st.columns([4, 1, 5], vertical_alignment='center')
         with colc:
