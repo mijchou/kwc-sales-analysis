@@ -140,22 +140,39 @@ def display_customer_analysis(sales_data, accounts_df, customer_number, items_df
         col1, col2 = st.columns([6, 4])
         col1.subheader('Sales Over Time')
 
+        # Toggle for grouping by month
+        group_by_month = col1.toggle("Grouped by month")
+
         # Calculate sales over time
-        sales_over_time = filtered_data.groupby('date').agg({'retail': 'sum', 'quantity': 'sum'}).reset_index()
-        sales_over_time['date_str'] = pd.to_datetime(sales_over_time['date']).dt.strftime('%Y-%m-%d')
+        if group_by_month:
+            filtered_data['year_month'] = pd.to_datetime(filtered_data['date']).dt.to_period('M')
+            sales_over_time = filtered_data.groupby('year_month').agg({'retail': 'sum', 'quantity': 'sum'}).reset_index()
+            sales_over_time['year_month'] = sales_over_time['year_month'].dt.to_timestamp()
+            sales_over_time['date_str'] = pd.to_datetime(sales_over_time['year_month']).dt.strftime('%b %Y')
+            x_column = 'year_month'
+        else:
+            sales_over_time = filtered_data.groupby('date').agg({'retail': 'sum', 'quantity': 'sum'}).reset_index()
+            sales_over_time['date_str'] = pd.to_datetime(sales_over_time['date']).dt.strftime('%Y-%m-%d')
+            x_column = 'date'
         with col1:
-                fig_sales_over_time = px.line(sales_over_time, x='date', y=metric_option, hover_data={metric_other: True})
+                fig_sales_over_time = px.line(sales_over_time, x=x_column, y=metric_option, hover_data={metric_other: True})
+                if group_by_month:
+                    date_label = 'Month'
+                    tick_format = '%b %Y'
+                else:
+                    date_label = 'Date'
+                    tick_format = '%b %d'
                 if metric_option=='quantity':
-                    hovertemplate2 = '<b>Date: </b>%{customdata[0]}<br><b>Qty. Sold: </b>%{y}<br><b>Revenue: </b>R %{customdata[1]}<extra></extra>'
+                    hovertemplate2 = f'<b>{date_label}: </b>%{{customdata[0]}}<br><b>Qty. Sold: </b>%{{y}}<br><b>Revenue: </b>R %{{customdata[1]}}<extra></extra>'
                 elif metric_option=='retail':
-                    hovertemplate2 = '<b>Date: </b>%{customdata[0]}<br><b>Revenue: </b>%{y}<br><b>Qty. Sold: </b>%{customdata[1]}<extra></extra>'
+                    hovertemplate2 = f'<b>{date_label}: </b>%{{customdata[0]}}<br><b>Revenue: </b>%{{y}}<br><b>Qty. Sold: </b>%{{customdata[1]}}<extra></extra>'
                 fig_sales_over_time.update_traces(hovertemplate=hovertemplate2,
                                                     customdata=sales_over_time[['date_str', metric_other]].values,
                                                     mode="markers+lines")
-                fig_sales_over_time.update_layout(xaxis_title='Date', yaxis_title=metric_option_name, bargap=0.2,
+                fig_sales_over_time.update_layout(xaxis_title=date_label, yaxis_title=metric_option_name, bargap=0.2,
                                                     hoverlabel=dict(bgcolor="white", font_color='black', font_size=14),
                                                     hovermode="x")
-                fig_sales_over_time.update_xaxes(tickformat='%b %d')                                            
+                fig_sales_over_time.update_xaxes(tickformat=tick_format)
                 st.plotly_chart(fig_sales_over_time)
 
 
@@ -169,19 +186,39 @@ def display_customer_analysis(sales_data, accounts_df, customer_number, items_df
 
             # Sales Over Time Records
             st.markdown('&nbsp;&nbsp;&nbsp;:arrow_down: :blue[**Click to view transactions.**]')
-            selected_row = st.dataframe(sales_over_time[['date', 'retail', 'quantity']].sort_values(by='date', ascending=False),
-                                        column_config={"date": st.column_config.Column("Date"),
-                                                        "retail": st.column_config.Column("Revenue"),
-                                                        "quantity": st.column_config.Column("Qty. Sold")}, hide_index=True, use_container_width=True, height=350, on_select='rerun', selection_mode="single-row")
+            if group_by_month:
+                display_df = sales_over_time[['date_str', 'retail', 'quantity']].copy()
+                display_df = display_df.sort_values(by='date_str', ascending=False)
+                selected_row = st.dataframe(display_df,
+                                            column_config={"date_str": st.column_config.Column("Month"),
+                                                            "retail": st.column_config.Column("Revenue"),
+                                                            "quantity": st.column_config.Column("Qty. Sold")}, hide_index=True, use_container_width=True, height=350, on_select='rerun', selection_mode="single-row")
+            else:
+                display_df = sales_over_time[['date', 'retail', 'quantity']].sort_values(by='date', ascending=False)
+                selected_row = st.dataframe(display_df,
+                                            column_config={"date": st.column_config.Column("Date"),
+                                                            "retail": st.column_config.Column("Revenue"),
+                                                            "quantity": st.column_config.Column("Qty. Sold")}, hide_index=True, use_container_width=True, height=350, on_select='rerun', selection_mode="single-row")
             selected_rowno = selected_row.selection.rows # get row no.
-            selected_df = sales_over_time.iloc[selected_rowno, 0] # get cell
+            selected_df = sales_over_time.iloc[selected_rowno] # get row
 
         cola, colb, colc = st.columns([4, 1, 5], vertical_alignment='center')
         with colc:
             if not selected_df.empty:
-                selected_date = selected_df.iloc[0]
-                transaction_of_date = filtered_data[filtered_data['date'] == selected_date][['image_file_path', 'item_number', 'description', 'quantity', 'retail']].reset_index(drop=True)
-                colb.write(f":blue[Transactions on] **:blue[{selected_date}]**:")
+                if group_by_month:
+                    selected_month = selected_df['year_month']
+                    if hasattr(selected_month, 'iloc'):
+                        selected_month = selected_month.iloc[0]
+                    filtered_data['year_month'] = pd.to_datetime(filtered_data['date']).dt.to_period('M').dt.to_timestamp()
+                    transaction_of_date = filtered_data[filtered_data['year_month'] == selected_month][['image_file_path', 'item_number', 'description', 'quantity', 'retail']].reset_index(drop=True)
+                    month_label = pd.to_datetime(selected_month).strftime('%b %Y')
+                    colb.write(f":blue[Transactions in] **:blue[{month_label}]**:")
+                else:
+                    selected_date = selected_df['date']
+                    if hasattr(selected_date, 'iloc'):
+                        selected_date = selected_date.iloc[0]
+                    transaction_of_date = filtered_data[filtered_data['date'] == selected_date][['image_file_path', 'item_number', 'description', 'quantity', 'retail']].reset_index(drop=True)
+                    colb.write(f":blue[Transactions on] **:blue[{selected_date}]**:")
                 st.dataframe(transaction_of_date, column_config={"image_file_path": st.column_config.ImageColumn("Image"),
                                         "item_number": st.column_config.Column("Item Number"),
                                         "description": st.column_config.Column("Description"),
