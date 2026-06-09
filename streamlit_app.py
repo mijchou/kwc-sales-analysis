@@ -10,6 +10,7 @@ import sales_overview as so
 import sales_analysis as sa
 import customer_analysis as ca
 import kwc_dashboard as kd
+import stock_in_analysis as sia
 # import database_page as dp
 
 # Set Streamlit page configuration
@@ -145,6 +146,11 @@ if st.sidebar.button(":trophy: KWC Sales Dashboard powered by Claude", key="goto
 if st.sidebar.button(":house: Back to Sales Overview", key="back_to_sales_overview"):
     u.back_to_sales_overview()
 
+# To "進貨分析表" (Stock-in Analysis):
+if st.sidebar.button("📦 進貨分析表", key="goto_stock_in_analysis"):
+    st.session_state.current_page = "Stock-in Analysis"
+    st.rerun()
+
 # st.sidebar.divider()
 
 # Sidebar elements
@@ -253,6 +259,7 @@ page_display_functions = {
     "Sales Overview": lambda: so.display_sales_overview(sales_data, accounts_df, purchase_record_df, items_df, st.session_state.date_start, st.session_state.date_end, supplier, selected_categories, st.session_state.metric_option, cost_price_df, st.session_state.show_profit_margin),
     "Sales Analysis": lambda: sa.display_sales_analysis(sales_data, accounts_df, purchase_record_df, items_df, st.session_state.selected_item_number, st.session_state.date_start, st.session_state.date_end, st.session_state.metric_option, cost_price_df, st.session_state.show_profit_margin),
     "Customer Analysis": lambda: ca.display_customer_analysis(sales_data, accounts_df, st.session_state.selected_customer_number, items_df, st.session_state.date_start, st.session_state.date_end, supplier, selected_categories, st.session_state.metric_option, cost_price_df, st.session_state.show_profit_margin),
+    "Stock-in Analysis": lambda: sia.display_stock_in_analysis(sales_data, accounts_df, purchase_record_df, items_df, st.session_state.date_start, st.session_state.date_end, supplier, selected_categories, st.session_state.metric_option, cost_price_df),
     "Catalogue": lambda: dp.display_database(accounts_df, items_df, sales_data, supplier, selected_categories)  # Pass supplier here
 }
 
