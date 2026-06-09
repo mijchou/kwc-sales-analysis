@@ -137,7 +137,7 @@ def display_sales_analysis(sales_data, accounts_df, purchase_record_df, items_df
                 "retail": st.column_config.Column("Price"),
                 "instock": st.column_config.Column("In Stock"),
                 "quantity": st.column_config.Column("Qty. Sold"),
-                "毛利": st.column_config.NumberColumn("毛利", format="R %.2f")
+                "毛利": st.column_config.NumberColumn("毛利", format="%.2f")
             }
         else:
             same_series_column_config = {
@@ -172,6 +172,16 @@ def display_sales_analysis(sales_data, accounts_df, purchase_record_df, items_df
         col1, col2 = st.columns(2, vertical_alignment='bottom')
         col1.header(f':blue[{item_number}]')
         col2.header(f'Price: R {retail_price}')
+
+        # Show cost price in both currencies when profit margin is enabled
+        if show_profit_margin and cost_price_df is not None:
+            item_cost = cost_price_df[cost_price_df['item_number'] == item_number]
+            if not item_cost.empty:
+                cost_rmb = item_cost['cost_price_rmb'].iloc[0]
+                cost_zar = item_cost['cost_price'].iloc[0]
+                if pd.notna(cost_rmb):
+                    st.markdown(f"**原始價格(人民幣):** ¥ {cost_rmb:.2f} &nbsp;&nbsp; **原始價格(南非幣):** R {cost_zar:.2f}")
+
         st.image(image_path, caption=item_description, use_column_width=True)
 
     st.divider()
@@ -241,7 +251,7 @@ def display_sales_analysis(sales_data, accounts_df, purchase_record_df, items_df
                         "name": st.column_config.Column("Name"),
                         "retail": st.column_config.Column("Revenue"),
                         "quantity": st.column_config.Column("Qty. Sold"),
-                        "毛利": st.column_config.NumberColumn("毛利", format="R %.2f")
+                        "毛利": st.column_config.NumberColumn("毛利", format="%.2f")
                     }
                 else:
                     customer_ranking_column_config = {

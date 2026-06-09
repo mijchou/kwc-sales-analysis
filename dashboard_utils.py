@@ -9,12 +9,12 @@ from dateutil.relativedelta import relativedelta
 
 
 def add_profit_margin(df, cost_price_df):
-    """Add 毛利 column to DataFrame by joining with cost prices.
+    """Add 毛利 column to DataFrame by joining with cost prices (in ZAR).
 
-    Profit = (selling_price - cost_price) * quantity = retail - (cost_price * quantity)
+    Profit = (selling_price - cost_price_zar) * quantity = retail - (cost_price * quantity)
     Items without cost data will have 毛利 = 0.
     """
-    result = df.merge(cost_price_df, on='item_number', how='left')
+    result = df.merge(cost_price_df[['item_number', 'cost_price']], on='item_number', how='left')
     result['毛利'] = np.where(
         result['cost_price'].notna(),
         result['retail'] - (result['cost_price'] * result['quantity']),

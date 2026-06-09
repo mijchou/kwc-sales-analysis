@@ -354,7 +354,7 @@ def display_top_customers(sales_data, accounts_df, start_date, end_date, cost_pr
         if show_profit_margin and cost_price_df is not None:
             accno = row['accno']
             profit = profit_by_customer.get(accno, 0)
-            row_data['毛利'] = du.format_currency(profit)
+            row_data['毛利'] = du.format_currency(profit, prefix='')
 
         # Add historical year columns
         for year in hist_years:

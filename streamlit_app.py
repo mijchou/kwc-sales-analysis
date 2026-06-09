@@ -74,14 +74,17 @@ def load_data():
     purchase_record_df['date'] = pd.to_datetime(purchase_record_df['date'], format='%d/%m/%Y').dt.date
     return sales_data, items_df, purchase_record_df
 
+RMB_TO_ZAR = 2.4  # Exchange rate: 1 RMB = 2.4 ZAR
+
 @st.cache_data
 def load_cost_price_data():
     cost_price_file = os.path.join(DATA_DIR, 'price/Gui_latest_price_only.csv')
     cost_price_df = pd.read_csv(cost_price_file)
-    cost_price_df = cost_price_df.rename(columns={'Items': 'item_number', 'price': 'cost_price'})
-    cost_price_df['cost_price'] = pd.to_numeric(cost_price_df['cost_price'], errors='coerce')
+    cost_price_df = cost_price_df.rename(columns={'Items': 'item_number', 'price': 'cost_price_rmb'})
+    cost_price_df['cost_price_rmb'] = pd.to_numeric(cost_price_df['cost_price_rmb'], errors='coerce')
+    cost_price_df['cost_price'] = cost_price_df['cost_price_rmb'] * RMB_TO_ZAR  # Convert to ZAR
     cost_price_df = cost_price_df.drop_duplicates(subset='item_number', keep='first')
-    return cost_price_df[['item_number', 'cost_price']]
+    return cost_price_df[['item_number', 'cost_price_rmb', 'cost_price']]
 
 def change_date(max_date, option=''):
     if option == "Week":

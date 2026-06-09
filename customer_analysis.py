@@ -120,7 +120,7 @@ def display_customer_analysis(sales_data, accounts_df, customer_number, items_df
                     "description": st.column_config.Column("Description"),
                     "quantity": st.column_config.Column("Qty. Sold"),
                     "retail": st.column_config.Column("Revenue"),
-                    "毛利": st.column_config.NumberColumn("毛利", format="R %.2f")
+                    "毛利": st.column_config.NumberColumn("毛利", format="%.2f")
                 }
             else:
                 top_selling_column_config = {

@@ -119,7 +119,7 @@ def display_sales_overview(sales_data, accounts_df, purchase_record_df, items_df
                     "description": st.column_config.Column("Description"),
                     "retail": st.column_config.Column("Revenue"),
                     "quantity": st.column_config.Column("Qty. Sold"),
-                    "毛利": st.column_config.NumberColumn("毛利", format="R %.2f"),
+                    "毛利": st.column_config.NumberColumn("毛利", format="%.2f"),
                     "instock": st.column_config.Column("In Stock")
                 }
             else:
@@ -192,7 +192,7 @@ def display_sales_overview(sales_data, accounts_df, purchase_record_df, items_df
                     "delimit": st.column_config.Column("Acc. Limit"),
                     "retail": st.column_config.Column("Revenue"),
                     "quantity": st.column_config.Column("Qty. Sold"),
-                    "毛利": st.column_config.NumberColumn("毛利", format="R %.2f")
+                    "毛利": st.column_config.NumberColumn("毛利", format="%.2f")
                 }
             else:
                 customer_ranking_display = customer_ranking[['accno', 'name', 'termcode', 'delimit', 'retail', 'quantity']].sort_values(by=metric_option, ascending=False).reset_index(drop=True)
