@@ -74,6 +74,15 @@ def load_data():
     purchase_record_df['date'] = pd.to_datetime(purchase_record_df['date'], format='%d/%m/%Y').dt.date
     return sales_data, items_df, purchase_record_df
 
+@st.cache_data
+def load_cost_price_data():
+    cost_price_file = os.path.join(DATA_DIR, 'price/Gui_latest_price_only.csv')
+    cost_price_df = pd.read_csv(cost_price_file)
+    cost_price_df = cost_price_df.rename(columns={'Items': 'item_number', 'price': 'cost_price'})
+    cost_price_df['cost_price'] = pd.to_numeric(cost_price_df['cost_price'], errors='coerce')
+    cost_price_df = cost_price_df.drop_duplicates(subset='item_number', keep='first')
+    return cost_price_df[['item_number', 'cost_price']]
+
 def change_date(max_date, option=''):
     if option == "Week":
         st.session_state.date_start = max_date - timedelta(days=7)
@@ -103,9 +112,12 @@ def initialize_session_state(max_date):
         st.session_state.selectbox_customer_key = 2000
     if 'previous_page' not in st.session_state:
         st.session_state.previous_page = None
+    if 'show_profit_margin' not in st.session_state:
+        st.session_state.show_profit_margin = False
 
 # Load data
 sales_data, items_df, purchase_record_df = load_data()
+cost_price_df = load_cost_price_data()
 max_date = sales_data['date'].max()
 
 # Update the category column
@@ -211,6 +223,10 @@ elif selected_metric_option=='Quantity':
     selected_metric_option = 'quantity'
 st.session_state.metric_option = selected_metric_option
 
+# Add checkbox for profit margin display
+show_profit_margin = st.sidebar.checkbox('顯示毛利', value=False)
+st.session_state.show_profit_margin = show_profit_margin
+
 def reset_button():
     st.session_state.date_end = max_date
     st.session_state.date_start = max_date - timedelta(days=183)
@@ -230,10 +246,10 @@ clear_button = st.sidebar.button(
 
 # Page display logic
 page_display_functions = {
-    "KWC Dashboard": lambda: kd.display_kwc_dashboard(sales_data, accounts_df, items_df, max_date),
-    "Sales Overview": lambda: so.display_sales_overview(sales_data, accounts_df, purchase_record_df, items_df, st.session_state.date_start, st.session_state.date_end, supplier, selected_categories, st.session_state.metric_option),#, st.session_state.display_option),
-    "Sales Analysis": lambda: sa.display_sales_analysis(sales_data, accounts_df, purchase_record_df, items_df, st.session_state.selected_item_number, st.session_state.date_start, st.session_state.date_end, st.session_state.metric_option),#, st.session_state.display_option),
-    "Customer Analysis": lambda: ca.display_customer_analysis(sales_data, accounts_df, st.session_state.selected_customer_number, items_df, st.session_state.date_start, st.session_state.date_end, supplier, selected_categories, st.session_state.metric_option),#, st.session_state.display_option),
+    "KWC Dashboard": lambda: kd.display_kwc_dashboard(sales_data, accounts_df, items_df, max_date, cost_price_df, st.session_state.show_profit_margin),
+    "Sales Overview": lambda: so.display_sales_overview(sales_data, accounts_df, purchase_record_df, items_df, st.session_state.date_start, st.session_state.date_end, supplier, selected_categories, st.session_state.metric_option, cost_price_df, st.session_state.show_profit_margin),
+    "Sales Analysis": lambda: sa.display_sales_analysis(sales_data, accounts_df, purchase_record_df, items_df, st.session_state.selected_item_number, st.session_state.date_start, st.session_state.date_end, st.session_state.metric_option, cost_price_df, st.session_state.show_profit_margin),
+    "Customer Analysis": lambda: ca.display_customer_analysis(sales_data, accounts_df, st.session_state.selected_customer_number, items_df, st.session_state.date_start, st.session_state.date_end, supplier, selected_categories, st.session_state.metric_option, cost_price_df, st.session_state.show_profit_margin),
     "Catalogue": lambda: dp.display_database(accounts_df, items_df, sales_data, supplier, selected_categories)  # Pass supplier here
 }
 

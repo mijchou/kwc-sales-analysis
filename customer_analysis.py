@@ -4,9 +4,10 @@ import plotly.graph_objects as go
 from streamlit_plotly_events import plotly_events
 import pandas as pd
 import utils as u
+import dashboard_utils as du
 
 # Function to display customer analysis
-def display_customer_analysis(sales_data, accounts_df, customer_number, items_df, date_start, date_end, supplier, selected_categories, metric_option):
+def display_customer_analysis(sales_data, accounts_df, customer_number, items_df, date_start, date_end, supplier, selected_categories, metric_option, cost_price_df=None, show_profit_margin=False):
 
     # Initiate values
     if metric_option == 'quantity':
@@ -85,8 +86,15 @@ def display_customer_analysis(sales_data, accounts_df, customer_number, items_df
         col1, col2 = st.columns([5, 5])
         col1.write("### Purchase Ranking")
         col2.markdown('&nbsp;&nbsp;&nbsp;:arrow_down: :blue[**Click to select an item.**]')
-        top_selling_data = filtered_data.groupby(['item_number', 'description', 'image_file_path']).agg({'retail': 'sum', 'quantity': 'sum'}).reset_index()
-        top_selling_data = top_selling_data[['image_file_path', 'item_number', 'description', 'retail', 'quantity']].sort_values(by=metric_option, ascending=False).reset_index(drop=True)
+
+        # Add profit margin if checkbox is checked
+        if show_profit_margin and cost_price_df is not None:
+            filtered_with_profit = du.add_profit_margin(filtered_data.copy(), cost_price_df)
+            top_selling_data = filtered_with_profit.groupby(['item_number', 'description', 'image_file_path']).agg({'retail': 'sum', 'quantity': 'sum', '毛利': 'sum'}).reset_index()
+            top_selling_data = top_selling_data[['image_file_path', 'item_number', 'description', 'retail', 'quantity', '毛利']].sort_values(by=metric_option, ascending=False).reset_index(drop=True)
+        else:
+            top_selling_data = filtered_data.groupby(['item_number', 'description', 'image_file_path']).agg({'retail': 'sum', 'quantity': 'sum'}).reset_index()
+            top_selling_data = top_selling_data[['image_file_path', 'item_number', 'description', 'retail', 'quantity']].sort_values(by=metric_option, ascending=False).reset_index(drop=True)
         
         with col1:
             # top_selling_data = top_selling_data.sort_values(by=metric_option, ascending=False)
@@ -105,11 +113,24 @@ def display_customer_analysis(sales_data, accounts_df, customer_number, items_df
             st.plotly_chart(fig_top_selling_data)
 
         with col2:
-            selected_item_row = st.dataframe(top_selling_data, column_config={"image_file_path": st.column_config.ImageColumn("Image"),
-                                        "item_number": st.column_config.Column("Item Number"),
-                                        "description": st.column_config.Column("Description"),
-                                        "quantity": st.column_config.Column("Qty. Sold"),
-                                        "retail": st.column_config.Column("Revenue")},
+            if show_profit_margin and '毛利' in top_selling_data.columns:
+                top_selling_column_config = {
+                    "image_file_path": st.column_config.ImageColumn("Image"),
+                    "item_number": st.column_config.Column("Item Number"),
+                    "description": st.column_config.Column("Description"),
+                    "quantity": st.column_config.Column("Qty. Sold"),
+                    "retail": st.column_config.Column("Revenue"),
+                    "毛利": st.column_config.NumberColumn("毛利", format="R %.2f")
+                }
+            else:
+                top_selling_column_config = {
+                    "image_file_path": st.column_config.ImageColumn("Image"),
+                    "item_number": st.column_config.Column("Item Number"),
+                    "description": st.column_config.Column("Description"),
+                    "quantity": st.column_config.Column("Qty. Sold"),
+                    "retail": st.column_config.Column("Revenue")
+                }
+            selected_item_row = st.dataframe(top_selling_data, column_config=top_selling_column_config,
                                             use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row", )
 
             selected_rowno = selected_item_row.selection.rows

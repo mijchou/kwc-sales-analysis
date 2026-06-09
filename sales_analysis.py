@@ -5,8 +5,9 @@ import utils as u
 import datetime as dt
 import numpy as np
 from streamlit_plotly_events import plotly_events
+import dashboard_utils as du
 
-def display_sales_analysis(sales_data, accounts_df, purchase_record_df, items_df, item_number, date_start, date_end, metric_option): #, display_option):
+def display_sales_analysis(sales_data, accounts_df, purchase_record_df, items_df, item_number, date_start, date_end, metric_option, cost_price_df=None, show_profit_margin=False):
 
     if st.button("← Previous Page", key='sales_analysis_back_button_1'):
         u.go_back()
@@ -57,29 +58,23 @@ def display_sales_analysis(sales_data, accounts_df, purchase_record_df, items_df
     ## refresh other data
     def refresh_info():
         # Get Item Description
-        # item_description = items_df[items_df['item_number'] == item_number]['description'].iloc[0]
         item_description = items_df2.loc[item_number, 'description']
 
         # Get Category
-        # category_row = items_df[items_df['item_number'] == item_number]
-        # category = category_row['category'].values[0] if 'category' in category_row.columns else 'Unknown'
         category = items_df2.loc[item_number, 'category']
 
-        # Get Image Path
-        # image_path = u.find_image_path(item_number)
-
         # Get Current Retail Price
-        # retail_price_row = items_df[items_df['item_number'] == item_number]
-        # retail_price = retail_price_row['retail'].values[0] if not retail_price_row.empty else 'Unknown'
         retail_price = items_df2.loc[item_number, 'retail']
 
         # Get Current Instock Number
-        # instock_row = items_df[items_df['item_number'] == item_number]
-        # instock_quantity = int(instock_row['instock'].values[0]) if not instock_row.empty else 'Unknown'
         instock_quantity = items_df2.loc[item_number, 'instock']
 
-        # Get Customer Ranking Dataframe
-        customer_ranking = filtered_data.groupby(['accno', 'name']).agg({metric_option: 'sum',  metric_other: 'sum'}).reset_index()
+        # Get Customer Ranking Dataframe (with profit margin if enabled)
+        if show_profit_margin and cost_price_df is not None:
+            filtered_with_profit = du.add_profit_margin(filtered_data.copy(), cost_price_df)
+            customer_ranking = filtered_with_profit.groupby(['accno', 'name']).agg({metric_option: 'sum', metric_other: 'sum', '毛利': 'sum'}).reset_index()
+        else:
+            customer_ranking = filtered_data.groupby(['accno', 'name']).agg({metric_option: 'sum', metric_other: 'sum'}).reset_index()
         customer_ranking = customer_ranking.sort_values(by=metric_option, ascending=False).reset_index(drop=True)
 
         # Number of Customer
@@ -121,28 +116,39 @@ def display_sales_analysis(sales_data, accounts_df, purchase_record_df, items_df
     # Filter the DataFrame by the list of item_numbers
     same_series_sales = sales_data_by_date[sales_data_by_date['item_number'].isin(same_series_item_numbers)]
 
-    # Group by item_number and sum the quantities
-    quantity_sold = same_series_sales.groupby('item_number')['quantity'].sum().reset_index()
-
-    # Get the final table
-    same_series_df = pd.merge(same_series_df, quantity_sold[['item_number', 'quantity']], on='item_number', how='left') 
+    # Group by item_number and sum the quantities (and profit margin if enabled)
+    if show_profit_margin and cost_price_df is not None:
+        same_series_with_profit = du.add_profit_margin(same_series_sales.copy(), cost_price_df)
+        quantity_sold = same_series_with_profit.groupby('item_number').agg({'quantity': 'sum', '毛利': 'sum'}).reset_index()
+        same_series_df = pd.merge(same_series_df, quantity_sold[['item_number', 'quantity', '毛利']], on='item_number', how='left')
+    else:
+        quantity_sold = same_series_sales.groupby('item_number')['quantity'].sum().reset_index()
+        same_series_df = pd.merge(same_series_df, quantity_sold[['item_number', 'quantity']], on='item_number', how='left') 
 
 
     with col2:
         st.header('Same Series Items')
         st.markdown('&nbsp;&nbsp;&nbsp;:arrow_down: :blue[**Click to check out another item.**]')
-        # destined_item = item_number
-        # def highlight_original_item(row):
-        #     return ['background-color: lightyellow' if row['item_number']==item_number else '' for _ in row]
-        # styled_df2 = same_series_df.style.apply(highlight_original_item, axis=1)
         ## clickable df: same_series_df
+        if show_profit_margin and '毛利' in same_series_df.columns:
+            same_series_column_config = {
+                "item_number": st.column_config.Column("Item Number"),
+                "description": st.column_config.Column("Description"),
+                "retail": st.column_config.Column("Price"),
+                "instock": st.column_config.Column("In Stock"),
+                "quantity": st.column_config.Column("Qty. Sold"),
+                "毛利": st.column_config.NumberColumn("毛利", format="R %.2f")
+            }
+        else:
+            same_series_column_config = {
+                "item_number": st.column_config.Column("Item Number"),
+                "description": st.column_config.Column("Description"),
+                "retail": st.column_config.Column("Price"),
+                "instock": st.column_config.Column("In Stock"),
+                "quantity": st.column_config.Column("Qty. Sold")
+            }
         selected_item_row = st.dataframe(same_series_df,
-                                        column_config={"item_number": st.column_config.Column("Item Number"),
-                                                       "description": st.column_config.Column("Description"),
-                                                       "retail": st.column_config.Column("Price"),
-                                                       "instock": st.column_config.Column("In Stock"),
-                                                       "quantity": st.column_config.Column("Qty. Sold")
-                                                       }, hide_index=True, on_select='rerun', selection_mode="single-row")
+                                        column_config=same_series_column_config, hide_index=True, on_select='rerun', selection_mode="single-row")
 
         ## link to another item from the same series
         selected_rowno = selected_item_row.selection.rows # get row no.
@@ -229,11 +235,23 @@ def display_sales_analysis(sales_data, accounts_df, purchase_record_df, items_df
                     cola.metric('Top Customer', f'{top_customer_number}')
                     colb.metric('Total Customer Count', total_customers)
                 st.markdown('&nbsp;&nbsp;&nbsp;:arrow_down: :blue[**Click to select a customer.**]')
+                if show_profit_margin and '毛利' in customer_ranking.columns:
+                    customer_ranking_column_config = {
+                        "accno": st.column_config.Column("Account"),
+                        "name": st.column_config.Column("Name"),
+                        "retail": st.column_config.Column("Revenue"),
+                        "quantity": st.column_config.Column("Qty. Sold"),
+                        "毛利": st.column_config.NumberColumn("毛利", format="R %.2f")
+                    }
+                else:
+                    customer_ranking_column_config = {
+                        "accno": st.column_config.Column("Account"),
+                        "name": st.column_config.Column("Name"),
+                        "retail": st.column_config.Column("Revenue"),
+                        "quantity": st.column_config.Column("Qty. Sold")
+                    }
                 selected_customer_row = st.dataframe(customer_ranking,
-                                                    column_config={"accno": st.column_config.Column("Account"),
-                                                                    "name": st.column_config.Column("Name"),
-                                                                    "retail": st.column_config.Column("Revenue"),
-                                                                    "quantity": st.column_config.Column("Qty. Sold")},
+                                                    column_config=customer_ranking_column_config,
                                                     use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row", )
 
                 selected_rowno = selected_customer_row.selection.rows

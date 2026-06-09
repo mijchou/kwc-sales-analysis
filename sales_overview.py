@@ -5,11 +5,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 from streamlit_plotly_events import plotly_events
 import utils as u
+import dashboard_utils as du
 
-# test commit 
+# test commit
 # Section 1: Item Ranking
 # Function to display sales overview
-def display_sales_overview(sales_data, accounts_df, purchase_record_df, items_df, date_start, date_end, supplier, selected_categories, metric_option):#, display_option):
+def display_sales_overview(sales_data, accounts_df, purchase_record_df, items_df, date_start, date_end, supplier, selected_categories, metric_option, cost_price_df=None, show_profit_margin=False):
 
     # Initiate values
     if metric_option == 'quantity':
@@ -57,11 +58,17 @@ def display_sales_overview(sales_data, accounts_df, purchase_record_df, items_df
         # Merge the sales summary with the items_df to get other info
         ranked_sales = pd.merge(sales_summary, items_df[['item_number', 'description', 'instock', 'image_file_path', 'retail']], on='item_number', how='left')
         ranked_sales.rename(columns={'retail_x': 'retail', 'retail_y': 'price'}, inplace=True)
-        # # Update the session state with the new ranked_sales dataframe
-        # st.session_state.df = ranked_sales[['item_number', 'description', 'retail', 'quantity']]
 
-        # Calculate customer ranking
-        customer_ranking = filtered_data.groupby(['accno', 'name', 'termcode', 'delimit']).agg({'retail': 'sum', 'quantity': 'sum'}).reset_index()
+        # Add profit margin if checkbox is checked
+        if show_profit_margin and cost_price_df is not None:
+            ranked_sales = du.add_profit_margin(ranked_sales, cost_price_df)
+
+        # Calculate customer ranking - need to add profit margin at transaction level first
+        if show_profit_margin and cost_price_df is not None:
+            filtered_with_profit = du.add_profit_margin(filtered_data.copy(), cost_price_df)
+            customer_ranking = filtered_with_profit.groupby(['accno', 'name', 'termcode', 'delimit']).agg({'retail': 'sum', 'quantity': 'sum', '毛利': 'sum'}).reset_index()
+        else:
+            customer_ranking = filtered_data.groupby(['accno', 'name', 'termcode', 'delimit']).agg({'retail': 'sum', 'quantity': 'sum'}).reset_index()
 
         # Calculate for accno daily transaction: filtered_data by accno, date > total quantity, total retail
         # customer_purchase_by_date = filtered_data.groupby(['accno', 'date']).agg({'quantity': 'sum', 'retail': 'sum'}).reset_index()
@@ -103,27 +110,41 @@ def display_sales_overview(sales_data, accounts_df, purchase_record_df, items_df
         with col1:
             st.subheader('Items Sales Rank')#, divider='grey')
             st.markdown('&nbsp;&nbsp;&nbsp;:arrow_down: :blue[**Click to select an item.**]')
-            ranked_sales = ranked_sales[['image_file_path', 'item_number', 'description', 'retail', 'quantity', 'instock']].sort_values(by=metric_option, ascending=False).reset_index(drop=True)
-            selected_item_row = st.dataframe(ranked_sales,
-                                        column_config={"image_file_path": st.column_config.ImageColumn("Image"),
-                                        "item_number": st.column_config.Column("Item Number"),
-                                        "description": st.column_config.Column("Description"),
-                                        "retail": st.column_config.Column("Revenue"),
-                                        "quantity": st.column_config.Column("Qty. Sold"),
-                                        "instock": st.column_config.Column("In Stock")},
-                                        # "price": st.column_config.Column("Price")},
+            # Select columns based on whether profit margin is shown
+            if show_profit_margin and '毛利' in ranked_sales.columns:
+                ranked_sales_display = ranked_sales[['image_file_path', 'item_number', 'description', 'retail', 'quantity', '毛利', 'instock']].sort_values(by=metric_option, ascending=False).reset_index(drop=True)
+                column_config = {
+                    "image_file_path": st.column_config.ImageColumn("Image"),
+                    "item_number": st.column_config.Column("Item Number"),
+                    "description": st.column_config.Column("Description"),
+                    "retail": st.column_config.Column("Revenue"),
+                    "quantity": st.column_config.Column("Qty. Sold"),
+                    "毛利": st.column_config.NumberColumn("毛利", format="R %.2f"),
+                    "instock": st.column_config.Column("In Stock")
+                }
+            else:
+                ranked_sales_display = ranked_sales[['image_file_path', 'item_number', 'description', 'retail', 'quantity', 'instock']].sort_values(by=metric_option, ascending=False).reset_index(drop=True)
+                column_config = {
+                    "image_file_path": st.column_config.ImageColumn("Image"),
+                    "item_number": st.column_config.Column("Item Number"),
+                    "description": st.column_config.Column("Description"),
+                    "retail": st.column_config.Column("Revenue"),
+                    "quantity": st.column_config.Column("Qty. Sold"),
+                    "instock": st.column_config.Column("In Stock")
+                }
+            selected_item_row = st.dataframe(ranked_sales_display,
+                                        column_config=column_config,
                                         hide_index=True, on_select="rerun", selection_mode="single-row", height=700, key='item_rank_table')
         
         ## Item Sales Rank preview
         with col2:
             selected_rowno = selected_item_row.selection.rows
-            # item_number_colno = ranked_sales.columns.get_loc('item_number')
-            selected_df = ranked_sales.iloc[selected_rowno, 1]
+            selected_df = ranked_sales_display.iloc[selected_rowno, 1]
             if not selected_df.empty:
                 item_number = selected_df.iloc[0]
                 header = item_number
             else:
-                item_number = ranked_sales['item_number'][0]
+                item_number = ranked_sales_display['item_number'][0]
                 header = f':trophy: Top-selling: {item_number}'
             item_description = items_df.loc[items_df['item_number'] == item_number, 'description'].iloc[0]
 
@@ -156,30 +177,44 @@ def display_sales_overview(sales_data, accounts_df, purchase_record_df, items_df
         # Section 2: Customer Purchase Ranking
 
         # create df to display
-        customer_ranking = customer_ranking[['accno', 'name', 'termcode', 'delimit', 'retail', 'quantity']].sort_values(by=metric_option, ascending=False).reset_index(drop=True)
-
         col1, col2 = st.columns([5, 5])
         ## Show customer Rank table
         with col1:
             st.subheader('Customer Purchase Ranking') #, divider='grey')
             st.markdown('&nbsp;&nbsp;&nbsp;:arrow_down: :blue[**Click to select an item.**]')
-            selected_customer_row = st.dataframe(customer_ranking,
-                                        column_config={"accno": st.column_config.Column("Account"),
-                                        "name": st.column_config.Column("Name"),
-                                        "termcode": st.column_config.Column("Acc. Type"),
-                                        "delimit": st.column_config.Column("Acc. Limit"),
-                                        "retail": st.column_config.Column("Revenue"),
-                                        "quantity": st.column_config.Column("Qty. Sold")},
+            # Select columns based on whether profit margin is shown
+            if show_profit_margin and '毛利' in customer_ranking.columns:
+                customer_ranking_display = customer_ranking[['accno', 'name', 'termcode', 'delimit', 'retail', 'quantity', '毛利']].sort_values(by=metric_option, ascending=False).reset_index(drop=True)
+                customer_column_config = {
+                    "accno": st.column_config.Column("Account"),
+                    "name": st.column_config.Column("Name"),
+                    "termcode": st.column_config.Column("Acc. Type"),
+                    "delimit": st.column_config.Column("Acc. Limit"),
+                    "retail": st.column_config.Column("Revenue"),
+                    "quantity": st.column_config.Column("Qty. Sold"),
+                    "毛利": st.column_config.NumberColumn("毛利", format="R %.2f")
+                }
+            else:
+                customer_ranking_display = customer_ranking[['accno', 'name', 'termcode', 'delimit', 'retail', 'quantity']].sort_values(by=metric_option, ascending=False).reset_index(drop=True)
+                customer_column_config = {
+                    "accno": st.column_config.Column("Account"),
+                    "name": st.column_config.Column("Name"),
+                    "termcode": st.column_config.Column("Acc. Type"),
+                    "delimit": st.column_config.Column("Acc. Limit"),
+                    "retail": st.column_config.Column("Revenue"),
+                    "quantity": st.column_config.Column("Qty. Sold")
+                }
+            selected_customer_row = st.dataframe(customer_ranking_display,
+                                        column_config=customer_column_config,
                                         hide_index=True, on_select="rerun", selection_mode="single-row", height=600)
             selected_rowno = selected_customer_row.selection.rows # row number
-            # accno_colno = customer_ranking.columns.get_loc('accno') # column number
-            selected_df = customer_ranking.iloc[selected_rowno, 0]
+            selected_df = customer_ranking_display.iloc[selected_rowno, 0]
             if not selected_df.empty:
                 selected_customer_number = selected_df.iloc[0]
                 selected_customer_name = accounts_df[accounts_df['accno']==selected_customer_number]['name'].values[0]
                 col2.subheader(f'{selected_customer_name} :blue[({selected_customer_number})]')
             else:
-                selected_customer_number = customer_ranking['accno'][0]
+                selected_customer_number = customer_ranking_display['accno'][0]
                 selected_customer_name = accounts_df[accounts_df['accno']==selected_customer_number]['name'].values[0]
                 col2.subheader(f':trophy: Top Customer: {selected_customer_name} :blue[({selected_customer_number})]')
 

@@ -11,7 +11,7 @@ from dateutil.relativedelta import relativedelta
 import dashboard_utils as du
 
 
-def display_kwc_dashboard(sales_data, accounts_df, items_df, max_date):
+def display_kwc_dashboard(sales_data, accounts_df, items_df, max_date, cost_price_df=None, show_profit_margin=False):
     """Main dashboard display function."""
 
     st.markdown("# KWC Sales Dashboard")
@@ -61,29 +61,40 @@ def display_kwc_dashboard(sales_data, accounts_df, items_df, max_date):
 
     # Calculate KPIs
     current_kpis = du.calculate_kpis(sales_data, start_date, end_date)
-    previous_kpis = du.calculate_kpis(sales_data, prev_start, prev_end)
+
+    # Get historical comparison (average of same period from previous years)
+    historical_data = du.calculate_historical_average_kpis(sales_data, start_date, end_date)
+    years_included = historical_data['years_included']
+
+    # Use historical average if available, otherwise fall back to previous period
+    if historical_data['average_kpis']:
+        comparison_kpis = historical_data['average_kpis']
+        years_label = f"vs avg ({', '.join(map(str, years_included))})"
+    else:
+        comparison_kpis = du.calculate_kpis(sales_data, prev_start, prev_end)
+        years_label = "vs prev period"
 
     # KPI Cards Row
     kpi_cols = st.columns(4)
 
     with kpi_cols[0]:
-        delta_revenue = du.calculate_delta(current_kpis['revenue'], previous_kpis['revenue'])
+        delta_revenue = du.calculate_delta(current_kpis['revenue'], comparison_kpis['revenue'])
         st.metric(
             label="Revenue",
             value=du.format_currency(current_kpis['revenue']),
-            delta=f"{delta_revenue:+.1f}% vs prev period"
+            delta=f"{delta_revenue:+.1f}% {years_label}"
         )
 
     with kpi_cols[1]:
-        delta_qty = du.calculate_delta(current_kpis['quantity'], previous_kpis['quantity'])
+        delta_qty = du.calculate_delta(current_kpis['quantity'], comparison_kpis['quantity'])
         st.metric(
             label="Units Sold",
             value=du.format_number(current_kpis['quantity']),
-            delta=f"{delta_qty:+.1f}% vs prev period"
+            delta=f"{delta_qty:+.1f}% {years_label}"
         )
 
     with kpi_cols[2]:
-        delta_margin = current_kpis['margin_pct'] - previous_kpis['margin_pct']
+        delta_margin = current_kpis['margin_pct'] - comparison_kpis['margin_pct']
         st.metric(
             label="Gross Profit",
             value=du.format_currency(current_kpis['gross_profit']),
@@ -91,12 +102,46 @@ def display_kwc_dashboard(sales_data, accounts_df, items_df, max_date):
         )
 
     with kpi_cols[3]:
-        delta_customers = current_kpis['active_customers'] - previous_kpis['active_customers']
+        delta_customers = current_kpis['active_customers'] - comparison_kpis['active_customers']
         st.metric(
             label="Active Customers",
             value=current_kpis['active_customers'],
-            delta=f"{delta_customers:+d} vs prev period"
+            delta=f"{delta_customers:+.0f} {years_label}"
         )
+
+    # Expandable historical breakdown by year
+    if historical_data['per_year_kpis']:
+        with st.expander("View Historical Breakdown by Year", expanded=False):
+            current_year = end_date.year if hasattr(end_date, 'year') else end_date.date().year
+
+            # Build comparison data
+            years = sorted(historical_data['per_year_kpis'].keys(), reverse=True)
+            all_years = [current_year] + years
+
+            # Create header row
+            header_cols = st.columns([2] + [1.5] * len(all_years))
+            header_cols[0].markdown("**Metric**")
+            header_cols[1].markdown(f"**{current_year} (Current)**")
+            for i, year in enumerate(years):
+                header_cols[i + 2].markdown(f"**{year}**")
+
+            # Define metrics to display
+            metrics = [
+                ('Revenue', 'revenue', du.format_currency),
+                ('Units Sold', 'quantity', du.format_number),
+                ('Gross Profit', 'gross_profit', du.format_currency),
+                ('Margin %', 'margin_pct', lambda x: f"{x:.1f}%"),
+                ('Active Customers', 'active_customers', lambda x: str(int(x)))
+            ]
+
+            # Display each metric row
+            for metric_name, key, formatter in metrics:
+                row_cols = st.columns([2] + [1.5] * len(all_years))
+                row_cols[0].write(metric_name)
+                row_cols[1].write(formatter(current_kpis[key]))
+                for i, year in enumerate(years):
+                    year_kpis = historical_data['per_year_kpis'][year]
+                    row_cols[i + 2].write(formatter(year_kpis[key]))
 
     st.divider()
 
@@ -118,7 +163,7 @@ def display_kwc_dashboard(sales_data, accounts_df, items_df, max_date):
 
     with row3_col1:
         st.markdown("### Top 10 Customers")
-        display_top_customers(sales_data, accounts_df, start_date, end_date)
+        display_top_customers(sales_data, accounts_df, start_date, end_date, cost_price_df, show_profit_margin)
 
     with row3_col2:
         st.markdown("### Customer Health")
@@ -255,41 +300,85 @@ def display_category_breakdown(sales_data, start_date, end_date):
             st.metric(cat_name, f"{row['margin_pct']:.0f}%", label_visibility='visible')
 
 
-def display_top_customers(sales_data, accounts_df, start_date, end_date):
-    """Display top customers bar chart."""
-    top_customers = du.get_top_customers(sales_data, accounts_df, start_date, end_date, n=10)
+def display_top_customers(sales_data, accounts_df, start_date, end_date, cost_price_df=None, show_profit_margin=False):
+    """Display top customers with historical rank comparison."""
+    customers_data = du.get_top_customers_with_history(
+        sales_data, accounts_df, start_date, end_date, n=10
+    )
 
-    if top_customers.empty:
+    if customers_data.empty:
         st.info("No data available for this period")
         return
 
-    # Truncate long names
-    top_customers['display_name'] = top_customers['name'].str[:20]
+    # Calculate profit margin by customer if enabled
+    profit_by_customer = {}
+    if show_profit_margin and cost_price_df is not None:
+        filtered_sales = sales_data[(sales_data['date'] >= start_date) & (sales_data['date'] <= end_date)]
+        filtered_sales = filtered_sales[filtered_sales['show'] == 'Y']
+        sales_with_profit = du.add_profit_margin(filtered_sales.copy(), cost_price_df)
+        profit_agg = sales_with_profit.groupby('accno')['毛利'].sum()
+        profit_by_customer = profit_agg.to_dict()
 
-    fig = px.bar(
-        top_customers,
-        x='retail',
-        y='display_name',
-        orientation='h',
-        labels={'retail': 'Revenue (R)', 'display_name': ''},
-        color='retail',
-        color_continuous_scale='Blues'
+    # Identify historical year columns
+    hist_years = sorted([
+        int(col.replace('_revenue', ''))
+        for col in customers_data.columns
+        if col.endswith('_revenue') and col != 'current_revenue'
+    ], reverse=True)
+
+    # Trend icon mapping
+    trend_icons = {
+        'up': ':green[↑]',
+        'down': ':red[↓]',
+        'stable': '→',
+        'new': ':blue[★]'
+    }
+
+    # Get current year for column header
+    current_year = end_date.year if hasattr(end_date, 'year') else end_date.date().year
+
+    # Build display table
+    display_data = []
+    for _, row in customers_data.iterrows():
+        trend = row.get('rank_trend', '')
+        trend_icon = trend_icons.get(trend, '')
+
+        row_data = {
+            'Rank': int(row['current_rank']),
+            '': trend_icon,
+            'Customer': str(row['name'])[:25],
+            f'{current_year} Revenue': du.format_currency(row['current_revenue'])
+        }
+
+        # Add profit margin column if enabled
+        if show_profit_margin and cost_price_df is not None:
+            accno = row['accno']
+            profit = profit_by_customer.get(accno, 0)
+            row_data['毛利'] = du.format_currency(profit)
+
+        # Add historical year columns
+        for year in hist_years:
+            rank = row.get(f'{year}_rank')
+            rev = row.get(f'{year}_revenue')
+            if pd.isna(rank):
+                row_data[str(year)] = '-'
+            else:
+                row_data[str(year)] = f"#{int(rank)} ({du.format_currency(rev)})"
+
+        display_data.append(row_data)
+
+    display_df = pd.DataFrame(display_data)
+
+    # Display as styled table
+    st.dataframe(
+        display_df,
+        hide_index=True,
+        use_container_width=True,
+        height=390
     )
 
-    fig.update_layout(
-        showlegend=False,
-        coloraxis_showscale=False,
-        margin=dict(l=0, r=0, t=10, b=0),
-        height=350,
-        yaxis={'categoryorder': 'total ascending'},
-        xaxis_title='Revenue (R)'
-    )
-
-    fig.update_traces(
-        hovertemplate='%{y}<br>R %{x:,.0f}<extra></extra>'
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
+    # Legend
+    st.caption(":green[↑] Improved  :red[↓] Declined  → Stable  :blue[★] New in Top 10")
 
     # Link to legacy detail
     if st.button("View detailed customer analysis", key="link_customer_legacy"):

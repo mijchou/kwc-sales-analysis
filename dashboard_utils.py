@@ -3,8 +3,25 @@ Dashboard utility functions for KWC Sales Dashboard.
 Provides calculation helpers for metrics, period comparisons, and customer segmentation.
 """
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+
+
+def add_profit_margin(df, cost_price_df):
+    """Add 毛利 column to DataFrame by joining with cost prices.
+
+    Profit = (selling_price - cost_price) * quantity = retail - (cost_price * quantity)
+    Items without cost data will have 毛利 = 0.
+    """
+    result = df.merge(cost_price_df, on='item_number', how='left')
+    result['毛利'] = np.where(
+        result['cost_price'].notna(),
+        result['retail'] - (result['cost_price'] * result['quantity']),
+        0
+    )
+    result = result.drop(columns=['cost_price'])
+    return result
 
 
 # Area code to region name mapping (South Africa + neighboring countries)
@@ -410,3 +427,141 @@ def get_regional_breakdown(sales_df, accounts_df, start_date, end_date):
     regional = regional.sort_values('revenue', ascending=False)
 
     return regional
+
+
+def get_historical_periods(start_date, end_date, sales_df):
+    """
+    Calculate equivalent date ranges for all available previous years.
+    Returns list of (year, period_start, period_end) tuples for periods with data.
+    """
+    # Normalize dates
+    if hasattr(start_date, 'date'):
+        start_date = start_date.date()
+    elif isinstance(start_date, str):
+        start_date = pd.to_datetime(start_date).date()
+
+    if hasattr(end_date, 'date'):
+        end_date = end_date.date()
+    elif isinstance(end_date, str):
+        end_date = pd.to_datetime(end_date).date()
+
+    current_year = end_date.year
+    historical_periods = []
+
+    # Get the range of years in the data
+    min_year = sales_df['date'].min().year
+    max_year = sales_df['date'].max().year
+
+    # Check each previous year
+    for year in range(current_year - 1, min_year - 1, -1):
+        try:
+            # Calculate equivalent dates for this year
+            year_offset = current_year - year
+            hist_start = start_date - relativedelta(years=year_offset)
+            hist_end = end_date - relativedelta(years=year_offset)
+
+            # Check if there's actual data in this period
+            mask = (sales_df['date'] >= hist_start) & (sales_df['date'] <= hist_end)
+            if sales_df[mask].shape[0] > 0:
+                historical_periods.append((year, hist_start, hist_end))
+        except ValueError:
+            # Handle edge cases like Feb 29 in non-leap years
+            continue
+
+    return historical_periods
+
+
+def calculate_historical_average_kpis(sales_df, start_date, end_date):
+    """
+    Calculate average KPIs across all historical equivalent periods.
+    Returns dict with average_kpis, years_included, and per_year_kpis.
+    """
+    historical_periods = get_historical_periods(start_date, end_date, sales_df)
+
+    if not historical_periods:
+        return {
+            'average_kpis': None,
+            'years_included': [],
+            'per_year_kpis': {}
+        }
+
+    per_year_kpis = {}
+    for year, hist_start, hist_end in historical_periods:
+        kpis = calculate_kpis(sales_df, hist_start, hist_end)
+        per_year_kpis[year] = kpis
+
+    # Calculate averages
+    years_included = sorted(per_year_kpis.keys(), reverse=True)
+    n_years = len(years_included)
+
+    average_kpis = {
+        'revenue': sum(per_year_kpis[y]['revenue'] for y in years_included) / n_years,
+        'quantity': sum(per_year_kpis[y]['quantity'] for y in years_included) / n_years,
+        'gross_profit': sum(per_year_kpis[y]['gross_profit'] for y in years_included) / n_years,
+        'margin_pct': sum(per_year_kpis[y]['margin_pct'] for y in years_included) / n_years,
+        'active_customers': sum(per_year_kpis[y]['active_customers'] for y in years_included) / n_years,
+    }
+
+    return {
+        'average_kpis': average_kpis,
+        'years_included': years_included,
+        'per_year_kpis': per_year_kpis
+    }
+
+
+def get_top_customers_with_history(sales_df, accounts_df, start_date, end_date, n=10):
+    """
+    Get top N customers with historical rank and revenue comparison.
+    Returns DataFrame with current data and historical ranks/revenue per year.
+    """
+    # Get current top customers
+    current_top = get_top_customers(sales_df, accounts_df, start_date, end_date, n=n)
+
+    if current_top.empty:
+        return current_top
+
+    # Add current rank
+    current_top = current_top.reset_index(drop=True)
+    current_top['current_rank'] = current_top.index + 1
+    current_top['current_revenue'] = current_top['retail']
+
+    # Get historical periods
+    historical_periods = get_historical_periods(start_date, end_date, sales_df)
+
+    # For each historical period, get top 20 customers (wider net to track drops)
+    for year, hist_start, hist_end in historical_periods:
+        hist_top = get_top_customers(sales_df, accounts_df, hist_start, hist_end, n=20)
+        if not hist_top.empty:
+            hist_top = hist_top.reset_index(drop=True)
+            hist_top[f'{year}_rank'] = hist_top.index + 1
+            hist_top[f'{year}_revenue'] = hist_top['retail']
+
+            # Merge historical data with current top customers
+            current_top = current_top.merge(
+                hist_top[['accno', f'{year}_rank', f'{year}_revenue']],
+                on='accno',
+                how='left'
+            )
+
+    # Calculate rank trend based on most recent historical year
+    if historical_periods:
+        most_recent_year = max(y for y, _, _ in historical_periods)
+        rank_col = f'{most_recent_year}_rank'
+
+        def get_trend(row):
+            if pd.isna(row.get(rank_col)):
+                return 'new'
+            prev_rank = row[rank_col]
+            curr_rank = row['current_rank']
+            if curr_rank < prev_rank:
+                return 'up'
+            elif curr_rank > prev_rank:
+                return 'down'
+            else:
+                return 'stable'
+
+        current_top['rank_trend'] = current_top.apply(get_trend, axis=1)
+    else:
+        current_top['rank_trend'] = None
+
+    return current_top
